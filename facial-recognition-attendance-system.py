@@ -22,14 +22,12 @@ class FacialRecognitionAttendanceSystem:
         self.camera_active = False
         self.excel_file_path = "attendance.xlsx"
         
-        # Load existing known faces
-        self.load_known_faces()
-        
-        # Initialize attendance file
-        self.initialize_attendance_file()
-        
-        # Create UI
+        # Create UI first
         self.create_ui()
+        
+        # Then load faces and initialize attendance file
+        self.load_known_faces()
+        self.initialize_attendance_file()
     
     def create_ui(self):
         # Main frames
@@ -392,8 +390,12 @@ class FacialRecognitionAttendanceSystem:
             messagebox.showerror("Error", f"Failed to save attendance: {str(e)}")
     
     def update_status(self, message):
-        self.status_bar.config(text=f"Status: {message}")
-        print(message)  # Also log to console for debugging
+        try:
+            if hasattr(self, 'status_bar'):
+                self.status_bar.config(text=f"Status: {message}")
+            print(message)  # Always log to console for debugging
+        except Exception as e:
+            print(f"Failed to update status: {message} - Error: {str(e)}")
     
     def start_camera(self):
         if not self.camera_active:
