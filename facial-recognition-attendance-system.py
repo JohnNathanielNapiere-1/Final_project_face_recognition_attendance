@@ -102,7 +102,7 @@ class FacialRecognitionAttendanceSystem:
         # Save button
         btn_save = Button(attendance_frame, text="Save Attendance", command=self.save_attendance, 
                          font=("Helvetica", 12), bg="#17a2b8", fg="white", cursor="hand2")
-        btn_save.place(x=200, y=455, width=150, height=30)
+        btn_save.place(x=200, y=430, width=150, height=30)
         
         # Status bar at bottom
         self.status_bar = Label(right_frame, text="Status: Ready", font=("Helvetica", 10), 
