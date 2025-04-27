@@ -68,7 +68,7 @@ class FacialRecognitionAttendanceSystem:
         
         # Table frame
         table_frame = Frame(attendance_frame, bd=2, relief=RIDGE, bg="white")
-        table_frame.place(x=10, y=10, width=535, height=440)
+        table_frame.place(x=10, y=10, width=535, height=420)
         
         # Scrollbars
         scroll_x = Scrollbar(table_frame, orient=HORIZONTAL)
@@ -102,7 +102,7 @@ class FacialRecognitionAttendanceSystem:
         # Save button
         btn_save = Button(attendance_frame, text="Save Attendance", command=self.save_attendance, 
                          font=("Helvetica", 12), bg="#17a2b8", fg="white", cursor="hand2")
-        btn_save.place(x=200, y=430, width=150, height=30)
+        btn_save.place(x=200, y=435, width=150, height=30)
         
         # Status bar at bottom
         self.status_bar = Label(right_frame, text="Status: Ready", font=("Helvetica", 10), 
@@ -272,7 +272,12 @@ class FacialRecognitionAttendanceSystem:
                     # Make sure today's column exists
                     today = datetime.now().strftime("%Y-%m-%d")
                     if today not in df.columns:
+                        # Add today's column with all students marked as 'Absent'
                         df[today] = "Absent"
+                    else:
+                        # Ensure all students have a status (set to "Absent" if not already set)
+                        mask = df[today].isna()
+                        df.loc[mask, today] = "Absent"
                     
                     # Sort by student name
                     df = df.sort_values('Student Name').reset_index(drop=True)
@@ -326,12 +331,18 @@ class FacialRecognitionAttendanceSystem:
                 
                 # Check if today's column exists
                 if today not in df.columns:
-                    df[today] = "Absent"
+                    df[today] = "Absent"  # Explicitly set absent status
                     df.to_excel(self.excel_file_path, index=False)
+                
+                # Ensure no empty values in today's column
+                mask = df[today].isna()
+                df.loc[mask, today] = "Absent"
+                df.to_excel(self.excel_file_path, index=False)
                 
                 # Populate the table with attendance records
                 for _, row in df.iterrows():
-                    self.attendance_table.insert("", END, values=(row["Student Name"], row[today]))
+                    status = row[today] if pd.notna(row[today]) else "Absent"
+                    self.attendance_table.insert("", END, values=(row["Student Name"], status))
                 
                 self.update_status(f"Displayed attendance records for {len(df)} students")
             else:
@@ -354,6 +365,10 @@ class FacialRecognitionAttendanceSystem:
             df = pd.read_excel(self.excel_file_path)
             today = datetime.now().strftime("%Y-%m-%d")
             
+            # Ensure today's column exists
+            if today not in df.columns:
+                df[today] = "Absent"
+            
             # Update the attendance status for the recognized student
             df.loc[df['Student Name'] == name, today] = "Present"
             
@@ -374,12 +389,8 @@ class FacialRecognitionAttendanceSystem:
     def save_attendance(self):
         try:
             if os.path.exists(self.excel_file_path):
-                # Make a backup of the current attendance file
-                backup_path = f"attendance_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-                df = pd.read_excel(self.excel_file_path)
-                df.to_excel(backup_path, index=False)
-                
-                self.update_status(f"Attendance saved. Backup created: {backup_path}")
+                # No backup creation - just display a success message
+                self.update_status("Attendance saved successfully")
                 messagebox.showinfo("Save Successful", "Attendance data has been saved successfully")
             else:
                 self.update_status("No attendance data to save")
