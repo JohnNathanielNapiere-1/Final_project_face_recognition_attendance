@@ -21,13 +21,20 @@ class FacialRecognitionAttendanceSystem:
         self.present_students = set()  # Track present students for today
         self.camera_active = False
         self.excel_file_path = "attendance.xlsx"
+        self.current_session_df = None #store the current session data
         
-        # Create UI first
-        self.create_ui()
+        # Get current session timestamp
+        self.current_session = datetime.now().strftime("%H:%M_%d/%m/%y")
         
         # Then load faces and initialize attendance file
         self.load_known_faces()
         self.initialize_attendance_file()
+
+        # Create UI
+        self.create_ui()
+        
+        
+        
     
     def create_ui(self):
         # Main frames
@@ -87,10 +94,9 @@ class FacialRecognitionAttendanceSystem:
         scroll_x.config(command=self.attendance_table.xview)
         scroll_y.config(command=self.attendance_table.yview)
         
-        today = datetime.now().strftime("%Y-%m-%d")
-        
+        # Display current session in the heading
         self.attendance_table.heading("name", text="Student Name")
-        self.attendance_table.heading("status", text=f"Status ({today})")
+        self.attendance_table.heading("status", text=f"Status ({self.current_session})")
         
         self.attendance_table["show"] = "headings"
         
@@ -100,7 +106,7 @@ class FacialRecognitionAttendanceSystem:
         self.attendance_table.pack(fill=BOTH, expand=1)
         
         # Save button
-        btn_save = Button(attendance_frame, text="Save Attendance", command=self.save_attendance, 
+        btn_save = Button(attendance_frame, text="Save & New Session", command=self.save_attendance, 
                          font=("Helvetica", 12), bg="#17a2b8", fg="white", cursor="hand2")
         btn_save.place(x=200, y=435, width=150, height=30)
         
@@ -203,17 +209,15 @@ class FacialRecognitionAttendanceSystem:
             date_columns = [col for col in df.columns if col != name_column]
             for date_col in date_columns:
                 try:
-                    # Try to parse as date to ensure it's a date column
-                    if pd.to_datetime(date_col, errors='coerce') is not pd.NaT:
-                        # For each student, find their attendance status on this date
-                        attendance_dict = {}
-                        for _, row in df.iterrows():
-                            if pd.notna(row[name_column]) and pd.notna(row[date_col]):
-                                student = row[name_column].strip()
-                                attendance_dict[student] = row[date_col]
-                        
-                        # Add the attendance data to the new DataFrame
-                        new_df[date_col] = new_df['Student Name'].map(attendance_dict)
+                    # For each student, find their attendance status on this date
+                    attendance_dict = {}
+                    for _, row in df.iterrows():
+                        if pd.notna(row[name_column]) and pd.notna(row[date_col]):
+                            student = row[name_column].strip()
+                            attendance_dict[student] = row[date_col]
+                    
+                    # Add the attendance data to the new DataFrame
+                    new_df[date_col] = new_df['Student Name'].map(attendance_dict)
                 except:
                     # Skip columns that don't contain date information
                     continue
@@ -259,35 +263,19 @@ class FacialRecognitionAttendanceSystem:
                         for student in new_students:
                             new_row = pd.DataFrame({'Student Name': [student]})
                             df = pd.concat([df, new_row], ignore_index=True)
-                        
-                        # For each date column except today, mark new students as "Not Enrolled Yet"
-                        today = datetime.now().strftime("%Y-%m-%d")
-                        date_columns = [col for col in df.columns if col != 'Student Name']
-                        
-                        for col in date_columns:
-                            if col != today:
-                                for student in new_students:
-                                    df.loc[df['Student Name'] == student, col] = "Not Enrolled Yet"
-                    
-                    # Make sure today's column exists
-                    today = datetime.now().strftime("%Y-%m-%d")
-                    if today not in df.columns:
-                        # Add today's column with all students marked as 'Absent'
-                        df[today] = "Absent"
-                    else:
-                        # Ensure all students have a status (set to "Absent" if not already set)
-                        mask = df[today].isna()
-                        df.loc[mask, today] = "Absent"
                     
                     # Sort by student name
                     df = df.sort_values('Student Name').reset_index(drop=True)
                     
-                    # Save the updated DataFrame
+                    # Save the updated DataFrame without the new session column
                     df.to_excel(self.excel_file_path, index=False)
                     
-                    # Initialize the set of present students for today
-                    present_students = df[df[today] == "Present"]['Student Name'].tolist()
-                    self.present_students = set(present_students)
+                    # Initialize the current session DataFrame
+                    self.current_session_df = df.copy()
+                    self.current_session_df[self.current_session] = "Absent"  # Add the new column in memory only
+                    
+                    # Initialize the set of present students as empty for the new session
+                    self.present_students = set()
                     
                     self.update_status("Attendance file updated successfully")
                     
@@ -308,15 +296,13 @@ class FacialRecognitionAttendanceSystem:
         # Create a new DataFrame with student names
         df = pd.DataFrame({'Student Name': students})
         
-        # Add today's date column with all students marked as 'Absent'
-        today = datetime.now().strftime("%Y-%m-%d")
-        df[today] = "Absent"
-        
-        # Sort by student name
-        df = df.sort_values('Student Name').reset_index(drop=True)
-        
-        # Save the DataFrame to Excel
+        # Save the DataFrame to Excel without the session column
         df.to_excel(self.excel_file_path, index=False)
+        
+        # Create the in-memory DataFrame with the session column
+        self.current_session_df = df.copy()
+        self.current_session_df[self.current_session] = "Absent"
+        
         self.update_status(f"Created new attendance file: {self.excel_file_path}")
     
     def display_attendance(self):
@@ -324,27 +310,14 @@ class FacialRecognitionAttendanceSystem:
             # Clear existing items in the table
             self.attendance_table.delete(*self.attendance_table.get_children())
             
-            # Read the attendance data
-            if os.path.exists(self.excel_file_path):
-                df = pd.read_excel(self.excel_file_path)
-                today = datetime.now().strftime("%Y-%m-%d")
+            if self.current_session_df is not None:
+                # Populate the table with attendance records from in-memory DataFrame
+                for _, row in self.current_session_df.iterrows():
+                    student_name = row["Student Name"]
+                    status = row[self.current_session]
+                    self.attendance_table.insert("", END, values=(student_name, status))
                 
-                # Check if today's column exists
-                if today not in df.columns:
-                    df[today] = "Absent"  # Explicitly set absent status
-                    df.to_excel(self.excel_file_path, index=False)
-                
-                # Ensure no empty values in today's column
-                mask = df[today].isna()
-                df.loc[mask, today] = "Absent"
-                df.to_excel(self.excel_file_path, index=False)
-                
-                # Populate the table with attendance records
-                for _, row in df.iterrows():
-                    status = row[today] if pd.notna(row[today]) else "Absent"
-                    self.attendance_table.insert("", END, values=(row["Student Name"], status))
-                
-                self.update_status(f"Displayed attendance records for {len(df)} students")
+                self.update_status(f"Displayed attendance records for {len(self.current_session_df)} students")
             else:
                 self.update_status("No attendance records found")
                 
@@ -361,26 +334,20 @@ class FacialRecognitionAttendanceSystem:
             # Add to set of present students
             self.present_students.add(name)
             
-            # Read the current Excel file
-            df = pd.read_excel(self.excel_file_path)
-            today = datetime.now().strftime("%Y-%m-%d")
-            
-            # Ensure today's column exists
-            if today not in df.columns:
-                df[today] = "Absent"
-            
-            # Update the attendance status for the recognized student
-            df.loc[df['Student Name'] == name, today] = "Present"
-            
-            # Save the updated DataFrame
-            df.to_excel(self.excel_file_path, index=False)
-            
-            # Refresh the display
-            self.display_attendance()
-            
-            self.update_status(f"Marked {name} as present")
-            return True
-            
+            # Update status in the in-memory DataFrame
+            if self.current_session_df is not None:
+                self.current_session_df.loc[self.current_session_df['Student Name'] == name, self.current_session] = "Present"
+                
+                # Find the row in the table with this student's name and update it
+                for item in self.attendance_table.get_children():
+                    if self.attendance_table.item(item)['values'][0] == name:
+                        # Update the status column to "Present"
+                        self.attendance_table.item(item, values=(name, "Present"))
+                        break
+                
+                self.update_status(f"Marked {name} as present for current session")
+                return True
+                    
         except Exception as e:
             self.update_status(f"Error marking attendance: {str(e)}")
             messagebox.showerror("Error", f"Failed to mark attendance: {str(e)}")
@@ -388,10 +355,39 @@ class FacialRecognitionAttendanceSystem:
     
     def save_attendance(self):
         try:
-            if os.path.exists(self.excel_file_path):
-                # No backup creation - just display a success message
-                self.update_status("Attendance saved successfully")
-                messagebox.showinfo("Save Successful", "Attendance data has been saved successfully")
+            if self.current_session_df is not None:
+                # Read the current Excel file to get the base data
+                base_df = pd.read_excel(self.excel_file_path)
+                
+                # Add the current session column from our in-memory DataFrame
+                base_df[self.current_session] = self.current_session_df[self.current_session]
+                
+                # Save the updated DataFrame to Excel
+                base_df.to_excel(self.excel_file_path, index=False)
+                
+                # Show success message for the saved session
+                saved_session = self.current_session
+                self.update_status(f"Session {saved_session} saved successfully")
+                messagebox.showinfo("Save Successful", f"Attendance data for session {saved_session} has been saved successfully")
+                
+                # Create a new session with timestamp
+                self.current_session = datetime.now().strftime("%H:%M_%d/%m/%y")
+                
+                # Clear present students set for the new session
+                self.present_students.clear()
+                
+                # Update table heading to show new session
+                self.attendance_table.heading("status", text=f"Status ({self.current_session})")
+                
+                # Create a new in-memory DataFrame for the new session
+                self.current_session_df = base_df.copy()
+                self.current_session_df[self.current_session] = "Absent"
+                
+                # Update the table display
+                self.display_attendance()
+                
+                self.update_status(f"New attendance session started: {self.current_session}")
+                messagebox.showinfo("New Session", f"New session started: {self.current_session}")
             else:
                 self.update_status("No attendance data to save")
                 messagebox.showwarning("Save Failed", "No attendance data found")
